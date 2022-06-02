@@ -11,7 +11,6 @@ import 'package:simprokmachine/simprokmachine.dart';
 
 /// A type that represents a behavior of a layer's reducer.
 class ReducerResult<T> {
-
   /// value
   final T? value;
 
@@ -27,98 +26,101 @@ class ReducerResult<T> {
 /// Starts the application flow.
 /// [main] - main layer.
 /// [secondary] - secondary layers.
-void runRootCore<State>({
-  required WidgetMachineLayerType<State, dynamic, dynamic> main,
-  required Set<MachineLayerType<State, dynamic, dynamic>> secondary,
+void runRootCore<State, Event>({
+  required WidgetMachineLayerType<State, Event, dynamic, dynamic> main,
+  required Set<MachineLayerType<State, Event, dynamic, dynamic>> secondary,
+  required BiMapper<State?, Event, ReducerResult<State>> reducer,
 }) {
-  final Machine<_StateAction<State>, _StateAction<State>> reducer =
-      _CoreReducerMachine<Mapper<State?, ReducerResult<State>>, State>(
-    reducer: (state, event) => event(state),
-  ).inward((_StateAction<State> input) {
-    if (input.mapper != null) {
+  final Machine<_StateAction<State, Event>, _StateAction<State, Event>>
+      _reducer = _CoreReducerMachine<Event, State>(
+    reducer: (State? state, Event event) => reducer(state, event),
+  ).inward((_StateAction<State, Event> input) {
+    if (input.event != null) {
       // will update
-      return Ward.single(input.mapper!);
+      return Ward.single(input.event!);
     } else {
       // did update
       return Ward.ignore();
     }
   }).outward(
-    (State output) => Ward.single(_StateAction<State>.didUpdate(output)),
+    (State output) => Ward.single(_StateAction<State, Event>.didUpdate(output)),
   );
 
-  final WidgetMachine<_StateAction<State>, _StateAction<State>> mainMachine =
-      main._child();
+  final WidgetMachine<_StateAction<State, Event>, _StateAction<State, Event>>
+      mainMachine = main._child();
 
-  final Iterable<Machine<_StateAction<State>, _StateAction<State>>>
-      secondaryMachines = secondary
-          .map((MachineLayerType<State, dynamic, dynamic> e) => e._child());
+  final Iterable<
+          Machine<_StateAction<State, Event>, _StateAction<State, Event>>>
+      secondaryMachines = secondary.map(
+          (MachineLayerType<State, Event, dynamic, dynamic> e) => e._child());
 
-  final Set<Machine<_StateAction<State>, _StateAction<State>>> machines =
-      List<Machine<_StateAction<State>, _StateAction<State>>>.from(
+  final Set<Machine<_StateAction<State, Event>, _StateAction<State, Event>>>
+      machines = List<
+          Machine<_StateAction<State, Event>, _StateAction<State, Event>>>.from(
     secondaryMachines,
   ).toSet();
-  machines.add(reducer);
+  machines.add(_reducer);
 
-  final WidgetMachine<_StateAction<State>, _StateAction<State>> root =
-      mergeWidgetMachine(
+  final WidgetMachine<_StateAction<State, Event>, _StateAction<State, Event>>
+      root = mergeWidgetMachine(
     main: mainMachine,
     secondary: machines,
   ).redirect(
-    (_StateAction<State> output) => Direction<_StateAction<State>>.back(
-      Ward<_StateAction<State>>.single(output),
+    (_StateAction<State, Event> output) =>
+        Direction<_StateAction<State, Event>>.back(
+      Ward<_StateAction<State, Event>>.single(output),
     ),
   );
 
-  runRootMachine<_StateAction<State>, _StateAction<State>>(root);
+  runRootMachine<_StateAction<State, Event>, _StateAction<State, Event>>(root);
 }
 
 /// A general abstract class that describes a type that represents a layer object.
 /// Contains a machine that receives mapped layer state as input and emits output
 /// that is reduced into application's state.
-abstract class MachineLayerType<GlobalState, State, Event> {
+abstract class MachineLayerType<GlobalState, GlobalEvent, State, Event> {
   /// A machine that receives mapped state as input and emits output that
   /// is reduced into application's state.
   Machine<State, Event> machine();
 
   /// A mapper that maps application's state into layer state
   /// and sends it into machine as input.
-  State map(GlobalState state);
+  State mapState(GlobalState state);
 
   /// A reducer that receives machine's event as output
   /// and reduces it into application's state.
-  ReducerResult<GlobalState> reduce(GlobalState? state, Event event);
+  GlobalEvent mapEvent(Event event);
 
-  Machine<_StateAction<GlobalState>, _StateAction<GlobalState>> _child() {
-    return machine()
-        .inward(_layerInward(_shouldIgnoreNewState(), map))
-        .outward(_layerOutward(reduce));
+  _PassDataStrategy strategy() {
+    return _PassDataStrategy.both;
   }
 
-  bool _shouldIgnoreNewState() {
-    return false;
+  Machine<_StateAction<GlobalState, GlobalEvent>,
+      _StateAction<GlobalState, GlobalEvent>> _child() {
+    return _implementation(machine(), mapState, mapEvent, strategy());
   }
 }
 
 /// A class that describes a type that represents a layer object.
 /// Contains a machine that receives mapped layer state as input and emits output
 /// that is reduced into application's state.
-class MachineLayerObject<GlobalState, State, Event>
-    extends MachineLayerType<GlobalState, State, Event> {
+class MachineLayerObject<GlobalState, GlobalEvent, State, Event>
+    extends MachineLayerType<GlobalState, GlobalEvent, State, Event> {
   final Machine<State, Event> _machine;
-  final Mapper<GlobalState, State> _mapper;
-  final BiMapper<GlobalState?, Event, ReducerResult<GlobalState>> _reducer;
+  final Mapper<GlobalState, State> _stateMapper;
+  final Mapper<Event, GlobalEvent> _eventMapper;
 
   /// [machine] - Layer's machine that receives the result of mapper
   /// method and emits event objects that are sent into reducer method.
-  /// [mapper] - Triggered every time the global state is changed.
-  /// [reducer] - Triggered every time the machine sends an output event.
+  /// [stateMapper] - Triggered every time the global state is changed.
+  /// [eventMapper] - Triggered every time the machine sends an output event.
   MachineLayerObject({
     required Machine<State, Event> machine,
-    required Mapper<GlobalState, State> mapper,
-    required BiMapper<GlobalState?, Event, ReducerResult<GlobalState>> reducer,
+    required Mapper<GlobalState, State> stateMapper,
+    required Mapper<Event, GlobalEvent> eventMapper,
   })  : _machine = machine,
-        _mapper = mapper,
-        _reducer = reducer;
+        _stateMapper = stateMapper,
+        _eventMapper = eventMapper;
 
   /// from MachineLayerType
   @override
@@ -128,14 +130,14 @@ class MachineLayerObject<GlobalState, State, Event>
 
   /// from MachineLayerType
   @override
-  State map(GlobalState state) {
-    return _mapper(state);
+  State mapState(GlobalState state) {
+    return _stateMapper(state);
   }
 
   /// from MachineLayerType
   @override
-  ReducerResult<GlobalState> reduce(GlobalState? state, Event event) {
-    return _reducer(state, event);
+  GlobalEvent mapEvent(Event event) {
+    return _eventMapper(event);
   }
 }
 
@@ -143,11 +145,16 @@ class MachineLayerObject<GlobalState, State, Event>
 /// layer object that does not produce events.
 /// Contains a machine that receives mapped layer state as input and *does not*
 /// emit output that is reduced into application's state.
-abstract class ConsumerLayerType<GlobalState, State, Output>
-    extends MachineLayerType<GlobalState, State, Output> {
+abstract class ConsumerLayerType<GlobalState, GlobalEvent, State, Event>
+    extends MachineLayerType<GlobalState, GlobalEvent, State, Event> {
   @override
-  ReducerResult<GlobalState> reduce(GlobalState? state, Output event) {
-    return ReducerResult.skip();
+  GlobalEvent mapEvent(Event event) {
+    throw UnimplementedError("This method must not be called");
+  }
+
+  @override
+  _PassDataStrategy strategy() {
+    return _PassDataStrategy.states;
   }
 }
 
@@ -155,8 +162,8 @@ abstract class ConsumerLayerType<GlobalState, State, Output>
 /// layer object that does not produce events.
 /// Contains a machine that receives mapped layer state as input and *does not*
 /// emit output that is reduced into application's state.
-class ConsumerLayerObject<GlobalState, State, Output>
-    extends ConsumerLayerType<GlobalState, State, Output> {
+class ConsumerLayerObject<GlobalState, GlobalEvent, State, Output>
+    extends ConsumerLayerType<GlobalState, GlobalEvent, State, Output> {
   final Machine<State, Output> _machine;
   final Mapper<GlobalState, State> _mapper;
 
@@ -177,7 +184,7 @@ class ConsumerLayerObject<GlobalState, State, Output>
 
   /// from ConsumerLayerType
   @override
-  State map(GlobalState state) {
+  State mapState(GlobalState state) {
     return _mapper(state);
   }
 }
@@ -186,17 +193,17 @@ class ConsumerLayerObject<GlobalState, State, Output>
 /// layer object that does not consume state.
 /// Contains a machine that *does not* receive mapped layer state as input
 /// and emits output that is reduced into application's state.
-abstract class ProducerLayerType<GlobalState, Event, Input>
-    extends MachineLayerType<GlobalState, Input, Event> {
+abstract class ProducerLayerType<GlobalState, GlobalEvent, State, Event>
+    extends MachineLayerType<GlobalState, GlobalEvent, State, Event> {
   /// from MachineLayerType
   @override
-  Input map(GlobalState state) {
-    throw Exception("Must not be reached");
+  State mapState(GlobalState state) {
+    throw UnimplementedError("This method must not be called");
   }
 
   @override
-  bool _shouldIgnoreNewState() {
-    return true;
+  _PassDataStrategy strategy() {
+    return _PassDataStrategy.events;
   }
 }
 
@@ -204,35 +211,128 @@ abstract class ProducerLayerType<GlobalState, Event, Input>
 /// layer object that does not consume state.
 /// Contains a machine that *does not* receive mapped layer state as input
 /// and emits output that is reduced into application's state.
-class ProducerLayerObject<GlobalState, Event, Input>
-    extends ProducerLayerType<GlobalState, Event, Input> {
-  final Machine<Input, Event> _machine;
-  final BiMapper<GlobalState?, Event, ReducerResult<GlobalState>> _reducer;
+class ProducerLayerObject<GlobalState, GlobalEvent, State, Event>
+    extends ProducerLayerType<GlobalState, GlobalEvent, State, Event> {
+  final Machine<State, Event> _machine;
+  final Mapper<Event, GlobalEvent> _mapper;
 
   /// [machine] - Layer's machine that receives the result of mapper
   /// method and emits event objects that are sent into reducer method.
   /// [reducer] - Triggered every time the machine sends an output event.
   ProducerLayerObject({
-    required Machine<Input, Event> machine,
-    required BiMapper<GlobalState?, Event, ReducerResult<GlobalState>> reducer,
+    required Machine<State, Event> machine,
+    required Mapper<Event, GlobalEvent> mapper,
   })  : _machine = machine,
-        _reducer = reducer;
+        _mapper = mapper;
 
   /// from ProducerLayerType
   @override
-  Machine<Input, Event> machine() {
+  Machine<State, Event> machine() {
     return _machine;
   }
 
   /// from ProducerLayerType
   @override
-  ReducerResult<GlobalState> reduce(GlobalState? state, Event event) {
-    return _reducer(state, event);
+  GlobalEvent mapEvent(Event event) {
+    return _mapper(event);
+  }
+}
+
+///
+abstract class MapStateLayerType<GlobalState, GlobalEvent, State>
+    extends MachineLayerType<GlobalState, GlobalEvent, State, GlobalEvent> {
+  @override
+  GlobalEvent mapEvent(GlobalEvent event) {
+    return event;
+  }
+}
+
+///
+class MapStateLayerObject<GlobalState, GlobalEvent, State>
+    extends MapStateLayerType<GlobalState, GlobalEvent, State> {
+  final Machine<State, GlobalEvent> _machine;
+  final Mapper<GlobalState, State> _mapper;
+
+  MapStateLayerObject({
+    required Machine<State, GlobalEvent> machine,
+    required Mapper<GlobalState, State> mapper,
+  })  : _machine = machine,
+        _mapper = mapper;
+
+  @override
+  Machine<State, GlobalEvent> machine() {
+    return _machine;
+  }
+
+  @override
+  State mapState(GlobalState state) {
+    return _mapper(state);
+  }
+}
+
+///
+abstract class MapEventLayerType<GlobalState, GlobalEvent, Event>
+    extends MachineLayerType<GlobalState, GlobalEvent, GlobalState, Event> {
+  @override
+  GlobalState mapState(GlobalState state) {
+    return state;
+  }
+}
+
+///
+class MapEventLayerObject<GlobalState, GlobalEvent, Event>
+    extends MapEventLayerType<GlobalState, GlobalEvent, Event> {
+  final Machine<GlobalState, Event> _machine;
+  final Mapper<Event, GlobalEvent> _mapper;
+
+  MapEventLayerObject({
+    required Machine<GlobalState, Event> machine,
+    required Mapper<Event, GlobalEvent> mapper,
+  })  : _machine = machine,
+        _mapper = mapper;
+
+  @override
+  Machine<GlobalState, Event> machine() {
+    return _machine;
+  }
+
+  @override
+  GlobalEvent mapEvent(Event event) {
+    return _mapper(event);
+  }
+}
+
+///
+abstract class NoMapLayerType<GlobalState, GlobalEvent>
+    extends MachineLayerType<GlobalState, GlobalEvent, GlobalState,
+        GlobalEvent> {
+  @override
+  GlobalState mapState(GlobalState state) {
+    return state;
+  }
+
+  @override
+  GlobalEvent mapEvent(GlobalEvent event) {
+    return event;
+  }
+}
+
+///
+class NoMapLayerObject<GlobalState, GlobalEvent>
+    extends NoMapLayerType<GlobalState, GlobalEvent> {
+  final Machine<GlobalState, GlobalEvent> _machine;
+
+  NoMapLayerObject({required Machine<GlobalState, GlobalEvent> machine})
+      : _machine = machine;
+
+  @override
+  Machine<GlobalState, GlobalEvent> machine() {
+    return _machine;
   }
 }
 
 /// The same as MachineLayerType but for WidgetMachine.
-abstract class WidgetMachineLayerType<GlobalState, State, Event> {
+abstract class WidgetMachineLayerType<GlobalState, GlobalEvent, State, Event> {
   /// The same as MachineLayerType.machine() but for WidgetMachine.
   /// return the same as MachineLayerType.machine() but for WidgetMachine.
   WidgetMachine<State, Event> machine();
@@ -240,38 +340,79 @@ abstract class WidgetMachineLayerType<GlobalState, State, Event> {
   /// The same as MachineLayerType.map() but for WidgetMachine.
   /// [state] - The same as MachineLayerType.map() but for WidgetMachine.
   /// returns the same as MachineLayerType.map() but for WidgetMachine.
-  State map(GlobalState state);
+  State mapState(GlobalState state);
 
   /// The same as MachineLayerType.reduce() but for WidgetMachine.
-  /// [state] - The same as MachineLayerType.reduce() but for WidgetMachine.
-  /// [event] - The same as MachineLayerType.reduce() but for WidgetMachine.
-  /// returns the same as MachineLayerType.reduce() but for WidgetMachine.
-  ReducerResult<GlobalState> reduce(GlobalState? state, Event event);
+  /// [event] - The same as MachineLayerType.mapEvent() but for WidgetMachine.
+  /// returns the same as MachineLayerType.mapEvent() but for WidgetMachine.
+  GlobalEvent mapEvent(Event event);
 
-  WidgetMachine<_StateAction<GlobalState>, _StateAction<GlobalState>> _child() {
-    return machine()
-        .inward(_layerInward(false, map))
-        .outward(_layerOutward(reduce));
+  WidgetMachine<_StateAction<GlobalState, GlobalEvent>,
+      _StateAction<GlobalState, GlobalEvent>> _child() {
+    return machine().outward((Event output) {
+      return Ward<_StateAction<GlobalState, GlobalEvent>>.single(
+        _StateAction<GlobalState, GlobalEvent>.willUpdate(mapEvent(output)),
+      );
+    }).inward((_StateAction<GlobalState, GlobalEvent> input) {
+      final GlobalState? state = input.state;
+      if (state != null) {
+        return Ward<State>.single(mapState(state));
+      } else {
+        return Ward<State>.ignore();
+      }
+    });
   }
 }
 
+Machine<_StateAction<GlobalState, GlobalEvent>,
+        _StateAction<GlobalState, GlobalEvent>>
+    _implementation<GlobalState, GlobalEvent, State, Event>(
+  Machine<State, Event> machine,
+  Mapper<GlobalState, State> stateMapper,
+  Mapper<Event, GlobalEvent> eventMapper,
+  _PassDataStrategy strategy,
+) {
+  return machine.outward((Event output) {
+    if (strategy == _PassDataStrategy.both ||
+        strategy == _PassDataStrategy.events) {
+      return Ward<_StateAction<GlobalState, GlobalEvent>>.single(
+        _StateAction<GlobalState, GlobalEvent>.willUpdate(eventMapper(output)),
+      );
+    } else {
+      return Ward<_StateAction<GlobalState, GlobalEvent>>.ignore();
+    }
+  }).inward((_StateAction<GlobalState, GlobalEvent> input) {
+    final GlobalState? state = input.state;
+    if (state != null) {
+      if (strategy == _PassDataStrategy.both ||
+          strategy == _PassDataStrategy.states) {
+        return Ward<State>.single(stateMapper(state));
+      } else {
+        return Ward<State>.ignore();
+      }
+    } else {
+      return Ward<State>.ignore();
+    }
+  });
+}
+
 /// The same as MachineLayerObject but for WidgetMachine.
-class WidgetMachineLayerObject<GlobalState, State, Event>
-    extends WidgetMachineLayerType<GlobalState, State, Event> {
+class WidgetMachineLayerObject<GlobalState, GlobalEvent, State, Event>
+    extends WidgetMachineLayerType<GlobalState, GlobalEvent, State, Event> {
   final WidgetMachine<State, Event> _machine;
-  final Mapper<GlobalState, State> _mapper;
-  final BiMapper<GlobalState?, Event, ReducerResult<GlobalState>> _reducer;
+  final Mapper<GlobalState, State> _stateMapper;
+  final Mapper<Event, GlobalEvent> _eventMapper;
 
   /// [machine] - The same as MachineLayerObject() but for WidgetMachine.
-  /// [mapper] - The same as MachineLayerObject() but for WidgetMachine.
-  /// [reducer] - The same as MachineLayerObject() but for WidgetMachine.
+  /// [stateMapper] - The same as MachineLayerObject() but for WidgetMachine.
+  /// [eventMapper] - The same as MachineLayerObject() but for WidgetMachine.
   WidgetMachineLayerObject({
     required WidgetMachine<State, Event> machine,
-    required Mapper<GlobalState, State> mapper,
-    required BiMapper<GlobalState?, Event, ReducerResult<GlobalState>> reducer,
+    required Mapper<GlobalState, State> stateMapper,
+    required Mapper<Event, GlobalEvent> eventMapper,
   })  : _machine = machine,
-        _mapper = mapper,
-        _reducer = reducer;
+        _stateMapper = stateMapper,
+        _eventMapper = eventMapper;
 
   /// from WidgetMachineLayerType
   @override
@@ -281,52 +422,28 @@ class WidgetMachineLayerObject<GlobalState, State, Event>
 
   /// from WidgetMachineLayerType
   @override
-  State map(GlobalState state) {
-    return _mapper(state);
+  State mapState(GlobalState state) {
+    return _stateMapper(state);
   }
 
   /// from WidgetMachineLayerType
   @override
-  ReducerResult<GlobalState> reduce(GlobalState? state, Event event) {
-    return _reducer(state, event);
+  GlobalEvent mapEvent(Event event) {
+    return _eventMapper(event);
   }
 }
 
-class _StateAction<T> {
-  final T? state;
-  final Mapper<T?, ReducerResult<T>>? mapper;
+class _StateAction<State, Event> {
+  final State? state;
+  final Event? event;
 
-  _StateAction.didUpdate(this.state) : mapper = null;
+  _StateAction.didUpdate(State _state)
+      : state = _state,
+        event = null;
 
-  _StateAction.willUpdate(this.mapper) : state = null;
-}
-
-Mapper<_StateAction<GlobalState>, Ward<State>> _layerInward<GlobalState, State>(
-  bool shouldIgnore,
-  Mapper<GlobalState, State> mapper,
-) {
-  return (_StateAction<GlobalState> input) {
-    if (shouldIgnore) {
-      return Ward.ignore();
-    } else {
-      if (input.state != null) {
-        return Ward.single(mapper(input.state!));
-      } else {
-        return Ward.ignore();
-      }
-    }
-  };
-}
-
-Mapper<Event, Ward<_StateAction<GlobalState>>>
-    _layerOutward<GlobalState, State, Event>(
-  BiMapper<GlobalState?, Event, ReducerResult<GlobalState>> reducer,
-) {
-  return (Event output) {
-    return Ward.single(_StateAction.willUpdate(
-      (GlobalState? currentState) => reducer(currentState, output),
-    ));
-  };
+  _StateAction.willUpdate(Event _event)
+      : state = null,
+        event = _event;
 }
 
 class _CoreReducerMachine<Event, State> extends ParentMachine<Event, State> {
@@ -389,12 +506,9 @@ class _CoreClassicResult<State, Output> {
     required Output output,
   }) : outputs = [output];
 
-  _CoreClassicResult.values({
-    required this.state,
-    required this.outputs,
-  });
-
   _CoreClassicResult.ignore({
     required this.state,
   }) : outputs = [];
 }
+
+enum _PassDataStrategy { states, events, both }
