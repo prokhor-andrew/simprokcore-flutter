@@ -1,3 +1,4 @@
-## 1.1.1
+## 1.1.2
 
-Initial publication. No changes so far.
+
+Added global reducer to the core. Added new layer types.
