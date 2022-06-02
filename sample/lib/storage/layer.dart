@@ -4,11 +4,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:simprokcore/simprokcore.dart';
 import 'package:simprokmachine/simprokmachine.dart';
 
+import '../event.dart';
 import '../state.dart';
 import 'machine.dart';
 
-class StorageLayer
-    extends MachineLayerType<AppState, StorageLayerState, StorageLayerEvent> {
+class StorageLayer extends MachineLayerType<AppState, AppEvent,
+    StorageLayerState, StorageLayerEvent> {
   final SharedPreferences _prefs;
 
   StorageLayer(this._prefs);
@@ -19,12 +20,12 @@ class StorageLayer
   }
 
   @override
-  StorageLayerState map(AppState state) {
+  StorageLayerState mapState(AppState state) {
     return StorageLayerState(state.number);
   }
 
   @override
-  ReducerResult<AppState> reduce(AppState? state, StorageLayerEvent event) {
-    return ReducerResult.set(AppState(event.number));
+  AppEvent mapEvent(StorageLayerEvent event) {
+    return AppEvent.initialize(event.number);
   }
 }

@@ -1,20 +1,20 @@
-import 'dart:developer';
-
 import 'package:simprokcore/simprokcore.dart';
 import 'package:simprokmachine/simprokmachine.dart';
 
+import '../event.dart';
 import '../state.dart';
 import '../utils/void_event.dart';
+import 'machine.dart';
 
-class LoggerLayer extends ConsumerLayerType<AppState, String, VoidEvent> {
+class LoggerLayer
+    extends ConsumerLayerType<AppState, AppEvent, String, VoidEvent> {
   @override
   Machine<String, VoidEvent> machine() {
-    return BasicMachine<String, VoidEvent>(
-        processor: (String? event, _) => log(event ?? "loading"));
+    return LoggerMachine();
   }
 
   @override
-  String map(AppState state) {
+  String mapState(AppState state) {
     return "${state.number}";
   }
 }

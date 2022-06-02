@@ -62,3 +62,11 @@ class MyHomePage extends StatelessWidget {
     );
   }
 }
+
+class BasicWidgetMachine
+    extends ChildWidgetMachine<UILayerState, UILayerEvent> {
+  @override
+  Widget child() {
+    return const MyApp();
+  }
+}
