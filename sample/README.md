@@ -13,7 +13,7 @@ The sample is divided into 9 easy steps demonstrating the flow of the app develo
 Let's assume we want to create a counter app that shows a number on the screen and logcat each time it is incremented. When we reopen the app we want to see the same number. So the state must be saved in persistent storage. 
 
 
-## Step 1 - Code application's state
+## Step 1 - Code application's state and event
 
 Here is our global state of the application.
 
@@ -24,6 +24,19 @@ class AppState {
   AppState(this.number);
 }
 ```
+
+Here are our events of the application.
+
+```Dart
+class AppEvent {
+  final int? initialize;
+
+  AppEvent.initialize(int value) : initialize = value;
+
+  AppEvent.increment() : initialize = null;
+}
+```
+
 
 ## Step 2 - List down APIs
 
@@ -121,25 +134,21 @@ class MyHomePage extends StatelessWidget {
 - Layer class:
 
 ```Dart
-class UILayer extends WidgetMachineLayerType<AppState, UILayerState, UILayerEvent> {
+class UILayer extends WidgetMachineLayerType<AppState, AppEvent, UILayerState,
+    UILayerEvent> {
   @override
   WidgetMachine<UILayerState, UILayerEvent> machine() {
-    return BasicWidgetMachine<UILayerState, UILayerEvent>(child: const MyApp());
+    return BasicWidgetMachine();
   }
 
   @override
-  UILayerState map(AppState state) {
+  UILayerState mapState(AppState state) {
     return UILayerState("${state.number}");
   }
 
   @override
-  ReducerResult<AppState> reduce(AppState? state, UILayerEvent event) {
-    final number = state?.number;
-    if (number == null) {
-      return ReducerResult.skip();
-    } else {
-      return ReducerResult.set(AppState(number + 1));
-    }
+  AppEvent mapEvent(UILayerEvent event) {
+    return AppEvent.increment();
   }
 }
 ```
@@ -169,31 +178,23 @@ class StorageLayerEvent {
 - Machine hierarchy:
 
 ```Dart
-class StorageMachine extends ParentMachine<StorageLayerState, StorageLayerEvent> {
+class StorageMachine
+    extends ChildMachine<StorageLayerState, StorageLayerEvent> {
   final SharedPreferences _prefs;
 
   StorageMachine(this._prefs);
 
   @override
-  Machine<StorageLayerState, StorageLayerEvent> child() {
-    return ProcessMachine.create(
-      object: _prefs,
-      processor: (
-        SharedPreferences prefs,
-        StorageLayerState? state,
-        Handler<StorageLayerEvent> callback,
-      ) {
-        const key = "storage";
-        if (state != null) {
-          // loaded
-          prefs.setInt(key, state.number);
-        } else {
-          // loading
-          int number = prefs.getInt(key) ?? 0;
-          callback(StorageLayerEvent(number));
-        }
-      },
-    );
+  void process(StorageLayerState? input, Handler<StorageLayerEvent> callback) {
+    const key = "storage";
+    if (input != null) {
+      // loaded
+      _prefs.setInt(key, input.number);
+    } else {
+      // loading
+      int number = _prefs.getInt(key) ?? 0;
+      callback(StorageLayerEvent(number));
+    }
   }
 }
 ```
@@ -201,7 +202,8 @@ class StorageMachine extends ParentMachine<StorageLayerState, StorageLayerEvent>
 - Layer class:
 
 ```Dart
-class StorageLayer extends MachineLayerType<AppState, StorageLayerState, StorageLayerEvent> {
+class StorageLayer extends MachineLayerType<AppState, AppEvent,
+    StorageLayerState, StorageLayerEvent> {
   final SharedPreferences _prefs;
 
   StorageLayer(this._prefs);
@@ -212,13 +214,13 @@ class StorageLayer extends MachineLayerType<AppState, StorageLayerState, Storage
   }
 
   @override
-  StorageLayerState map(AppState state) {
+  StorageLayerState mapState(AppState state) {
     return StorageLayerState(state.number);
   }
 
   @override
-  ReducerResult<AppState> reduce(AppState? state, StorageLayerEvent event) {
-    return ReducerResult.set(AppState(event.number));
+  AppEvent mapEvent(StorageLayerEvent event) {
+    return AppEvent.initialize(event.number);
   }
 }
 ```
@@ -229,20 +231,30 @@ class StorageLayer extends MachineLayerType<AppState, StorageLayerState, Storage
 
 - Event is going to be ```VoidEvent``` as we don't send any events.
 
-- Machine hierarchy not needed, as we can use ```BasicMachine``` class.
+- Logger machine:
+
+```Dart
+class LoggerMachine extends ChildMachine<String, VoidEvent> {
+
+  @override
+  void process(String? input, Handler<VoidEvent> callback) {
+    log(input ?? "loading");
+  }
+}
+```
 
 - Layer class:
 
 ```Dart
-class LoggerLayer extends ConsumerLayerType<AppState, String, VoidEvent> {
+class LoggerLayer
+    extends ConsumerLayerType<AppState, AppEvent, String, VoidEvent> {
   @override
   Machine<String, VoidEvent> machine() {
-    return BasicMachine<String, VoidEvent>(
-        processor: (String? event, _) => log(event ?? "loading"));
+    return LoggerMachine();
   }
 
   @override
-  String map(AppState state) {
+  String mapState(AppState state) {
     return "${state.number}";
   }
 }
@@ -257,11 +269,27 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
-  runRootCore<AppState>(
+  runRootCore<AppState, AppEvent>(
     main: UILayer(),
     secondary: {
       StorageLayer(prefs),
       LoggerLayer(),
+    },
+    reducer: (AppState? state, AppEvent event) {
+      final int? initialize = event.initialize;
+      if (state != null) {
+        if (initialize != null) {
+          return ReducerResult<AppState>.skip();
+        } else {
+          return ReducerResult<AppState>.set(AppState(state.number + 1));
+        }
+      } else {
+        if (initialize != null) {
+          return ReducerResult<AppState>.set(AppState(initialize));
+        } else {
+          return ReducerResult<AppState>.skip();
+        }
+      }
     },
   );
 }
