@@ -57,7 +57,7 @@ Add the line into pubspec.yaml:
 
 ```
 dependencies:
-    simprokcore: ^1.1.3
+    simprokcore: ^1.1.4
 ```
 
 Now in your Dart code, you can use:
