@@ -9,81 +9,30 @@ library simprokcore;
 
 import 'package:simprokmachine/simprokmachine.dart';
 
-/// A type that represents a behavior of a layer's reducer.
-class ReducerResult<T> {
-  /// value
-  final T? value;
-
-  /// Returning this value from layer's `reducer` method ensures
-  /// that the state *won't* be changed and emitted .
-  ReducerResult.skip() : value = null;
-
-  /// Returning this value from layer's `reducer` method ensures
-  /// that the state *will* be changed and emitted.
-  ReducerResult.set(T val) : value = val;
-}
-
 /// Starts the application flow.
 /// [main] - main layer.
 /// [secondary] - secondary layers.
 void runRootCore<State, Event>({
   required WidgetMachineLayerType<Event, dynamic, dynamic> main,
   required Set<MachineLayerType<Event, dynamic, dynamic>> secondary,
-  required BiMapper<State?, Event, ReducerResult<State>> reducer,
 }) {
-  _CoreClassicMachine<State?, Event, Event> classic = _CoreClassicMachine(
-      initial: _CoreClassicResult<State?, Event>.ignore(state: null),
-      reducer: (State? state, Event event) {
-        final ReducerResult<State> result = reducer(state, event);
-        final State? newState = result.value;
-        if (newState == null) {
-          // skip
-          return _CoreClassicResult<State?, Event>.ignore(state: state);
-        } else {
-          return _CoreClassicResult<State?, Event>.single(
-            state: newState,
-            output: event,
-          );
-        }
-      });
+  final WidgetMachine<Event, Event> mainMachine = main._child();
 
-  final Machine<_StateAction<Event>, _StateAction<Event>> _reducer =
-      classic.outward((Event event) {
-    return Ward<_StateAction<Event>>.single(
-      _StateAction<Event>.didUpdate(event),
-    );
-  }).inward((_StateAction<Event> stateAction) {
-    if (stateAction.didUpdate) {
-      return Ward<Event>.ignore();
-    } else {
-      return Ward<Event>.single(stateAction.event);
-    }
-  });
+  final Iterable<Machine<Event, Event>> secondaryMachines = secondary
+      .map((MachineLayerType<Event, dynamic, dynamic> e) => e._child());
 
-  final WidgetMachine<_StateAction<Event>, _StateAction<Event>> mainMachine =
-      main._child();
-
-  final Iterable<Machine<_StateAction<Event>, _StateAction<Event>>>
-      secondaryMachines = secondary
-          .map((MachineLayerType<Event, dynamic, dynamic> e) => e._child());
-
-  final Set<Machine<_StateAction<Event>, _StateAction<Event>>> machines =
-      List<Machine<_StateAction<Event>, _StateAction<Event>>>.from(
+  final Set<Machine<Event, Event>> machines = List<Machine<Event, Event>>.from(
     secondaryMachines,
   ).toSet();
-  machines.add(_reducer);
 
-  final WidgetMachine<_StateAction<Event>, _StateAction<Event>> root =
-      mergeWidgetMachine(
+  final WidgetMachine<Event, Event> root = mergeWidgetMachine(
     main: mainMachine,
     secondary: machines,
   ).redirect(
-    (_StateAction<Event> output) => Direction<_StateAction<Event>>.back(
-      Ward<_StateAction<Event>>.single(output),
-    ),
+    (Event output) => Direction<Event>.back(Ward<Event>.single(output)),
   );
 
-  runRootMachine<_StateAction<Event>, _StateAction<Event>>(root);
+  runRootMachine<Event, Event>(root);
 }
 
 /// A general abstract class that describes a type that represents a layer object.
@@ -105,7 +54,7 @@ abstract class MachineLayerType<Event, Input, Output> {
     return _PassDataStrategy.both;
   }
 
-  Machine<_StateAction<Event>, _StateAction<Event>> _child() {
+  Machine<Event, Event> _child() {
     return _implementation(machine(), mapInput, mapOutput, strategy());
   }
 }
@@ -355,24 +304,16 @@ abstract class WidgetMachineLayerType<Event, Input, Output> {
   /// returns the same as MachineLayerType.mapEvent() but for WidgetMachine.
   Event mapOutput(Output output);
 
-  WidgetMachine<_StateAction<Event>, _StateAction<Event>> _child() {
+  WidgetMachine<Event, Event> _child() {
     return machine().outward((Output output) {
-      return Ward<_StateAction<Event>>.single(
-        _StateAction<Event>.willUpdate(mapOutput(output)),
-      );
-    }).inward((_StateAction<Event> input) {
-      final Event event = input.event;
-      if (input.didUpdate) {
-        return Ward<Input>.single(mapInput(event));
-      } else {
-        return Ward<Input>.ignore();
-      }
+      return Ward<Event>.single(mapOutput(output));
+    }).inward((Event event) {
+      return Ward<Input>.single(mapInput(event));
     });
   }
 }
 
-Machine<_StateAction<Event>, _StateAction<Event>>
-    _implementation<Event, Input, Output>(
+Machine<Event, Event> _implementation<Event, Input, Output>(
   Machine<Input, Output> machine,
   Mapper<Event, Input> stateMapper,
   Mapper<Output, Event> eventMapper,
@@ -381,21 +322,14 @@ Machine<_StateAction<Event>, _StateAction<Event>>
   return machine.outward((Output output) {
     if (strategy == _PassDataStrategy.both ||
         strategy == _PassDataStrategy.events) {
-      return Ward<_StateAction<Event>>.single(
-        _StateAction<Event>.willUpdate(eventMapper(output)),
-      );
+      return Ward<Event>.single(eventMapper(output));
     } else {
-      return Ward<_StateAction<Event>>.ignore();
+      return Ward<Event>.ignore();
     }
-  }).inward((_StateAction<Event> input) {
-    final Event event = input.event;
-    if (input.didUpdate) {
-      if (strategy == _PassDataStrategy.both ||
-          strategy == _PassDataStrategy.states) {
-        return Ward<Input>.single(stateMapper(event));
-      } else {
-        return Ward<Input>.ignore();
-      }
+  }).inward((Event event) {
+    if (strategy == _PassDataStrategy.both ||
+        strategy == _PassDataStrategy.states) {
+      return Ward<Input>.single(stateMapper(event));
     } else {
       return Ward<Input>.ignore();
     }
@@ -437,56 +371,6 @@ class WidgetMachineLayerObject<Event, Input, Output>
   Event mapOutput(Output output) {
     return _eventMapper(output);
   }
-}
-
-class _StateAction<Event> {
-  final Event event;
-  final bool didUpdate;
-
-  _StateAction.didUpdate(Event _event)
-      : didUpdate = true,
-        event = _event;
-
-  _StateAction.willUpdate(Event _event)
-      : didUpdate = false,
-        event = _event;
-}
-
-class _CoreClassicMachine<State, Input, Output>
-    extends ChildMachine<Input, Output> {
-  final BiMapper<State, Input, _CoreClassicResult<State, Output>> _reducer;
-  _CoreClassicResult<State, Output> _state;
-
-  _CoreClassicMachine({
-    required _CoreClassicResult<State, Output> initial,
-    required BiMapper<State, Input, _CoreClassicResult<State, Output>> reducer,
-  })  : _state = initial,
-        _reducer = reducer;
-
-  @override
-  void process(Input? input, Handler<Output> callback) {
-    if (input != null) {
-      _state = _reducer(_state.state, input);
-    }
-
-    for (var element in _state.outputs) {
-      callback(element);
-    }
-  }
-}
-
-class _CoreClassicResult<State, Output> {
-  final State state;
-  final List<Output> outputs;
-
-  _CoreClassicResult.single({
-    required this.state,
-    required Output output,
-  }) : outputs = [output];
-
-  _CoreClassicResult.ignore({
-    required this.state,
-  }) : outputs = [];
 }
 
 enum _PassDataStrategy { states, events, both }
