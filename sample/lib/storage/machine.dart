@@ -1,24 +1,29 @@
-import 'package:sample/storage/event.dart';
-import 'package:sample/storage/state.dart';
+import 'package:sample/storage/output.dart';
+import 'package:sample/storage/input.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:simprokmachine/simprokmachine.dart';
 
 class StorageMachine
-    extends ChildMachine<StorageLayerState, StorageLayerEvent> {
+    extends ChildMachine<StorageLayerInput, StorageLayerOutput> {
   final SharedPreferences _prefs;
 
   StorageMachine(this._prefs);
 
   @override
-  void process(StorageLayerState? input, Handler<StorageLayerEvent> callback) {
+  void process(StorageLayerInput? input, Handler<StorageLayerOutput> callback) {
     const key = "storage";
     if (input != null) {
       // loaded
-      _prefs.setInt(key, input.number);
+      final int? init = input.initialize;
+      if (init != null) {
+        _prefs.setInt(key, init);
+      } else {
+
+      }
     } else {
       // loading
       int number = _prefs.getInt(key) ?? 0;
-      callback(StorageLayerEvent(number));
+      callback(StorageLayerOutput(number));
     }
   }
 }

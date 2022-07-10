@@ -12,7 +12,7 @@ import 'package:simprokmachine/simprokmachine.dart';
 /// Starts the application flow.
 /// [main] - main layer.
 /// [secondary] - secondary layers.
-void runRootCore<State, Event>({
+void runRootCore<Event>({
   required WidgetMachineLayerType<Event, dynamic, dynamic> main,
   required Set<MachineLayerType<Event, dynamic, dynamic>> secondary,
 }) {

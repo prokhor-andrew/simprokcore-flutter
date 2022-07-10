@@ -1,6 +1,6 @@
 name: simprokcore
 description: A template that removes all headache of designing your application's architecture by providing a simple API that encourages you to separate an application's logic properly.
-version: 1.1.5
+version: 1.1.6
 homepage: https://github.com/simprok-dev/simprokcore-flutter
 documentation: https://github.com/simprok-dev/simprokcore-flutter/wiki
 

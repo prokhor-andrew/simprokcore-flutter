@@ -1,20 +1,25 @@
+import 'package:sample/logger/logger_input.dart';
 import 'package:simprokcore/simprokcore.dart';
 import 'package:simprokmachine/simprokmachine.dart';
 
 import '../event.dart';
-import '../state.dart';
 import '../utils/void_event.dart';
 import 'machine.dart';
 
-class LoggerLayer
-    extends ConsumerLayerType<AppState, AppEvent, String, VoidEvent> {
+class LoggerLayer extends ConsumerLayerType<AppEvent, LoggerInput, VoidEvent> {
+
   @override
-  Machine<String, VoidEvent> machine() {
+  Machine<LoggerInput, VoidEvent> machine() {
     return LoggerMachine();
   }
 
   @override
-  String mapState(AppState state) {
-    return "${state.number}";
+  LoggerInput mapInput(AppEvent event) {
+    final int? initialize = event.initialize;
+    if (initialize != null) {
+      return LoggerInput.initialize(initialize);
+    } else {
+      return LoggerInput.increment();
+    }
   }
 }
