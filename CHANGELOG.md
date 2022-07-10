@@ -1,4 +1,4 @@
-## 1.1.6
+## 1.1.7
 
 
-Removed unnecessary generic in runRootCore()
+Added Ward to mappers in layers.

@@ -45,17 +45,13 @@ abstract class MachineLayerType<Event, Input, Output> {
 
   /// A mapper that maps application's event into layer input
   /// and sends it into machine.
-  Input mapInput(Event event);
+  Ward<Input> mapInput(Event event);
 
   /// A mapper that receives machine's output and maps it into application's event.
-  Event mapOutput(Output output);
-
-  _PassDataStrategy strategy() {
-    return _PassDataStrategy.both;
-  }
+  Ward<Event> mapOutput(Output output);
 
   Machine<Event, Event> _child() {
-    return _implementation(machine(), mapInput, mapOutput, strategy());
+    return _implementation(machine(), mapInput, mapOutput);
   }
 }
 
@@ -65,8 +61,8 @@ abstract class MachineLayerType<Event, Input, Output> {
 class MachineLayerObject<Event, Input, Output>
     extends MachineLayerType<Event, Input, Output> {
   final Machine<Input, Output> _machine;
-  final Mapper<Event, Input> _stateMapper;
-  final Mapper<Output, Event> _eventMapper;
+  final Mapper<Event, Ward<Input>> _stateMapper;
+  final Mapper<Output, Ward<Event>> _eventMapper;
 
   /// [machine] - Layer's machine that receives the result of mapper
   /// method and emits event objects that are sent into reducer method.
@@ -74,8 +70,8 @@ class MachineLayerObject<Event, Input, Output>
   /// [eventMapper] - Triggered every time the machine sends an output event.
   MachineLayerObject({
     required Machine<Input, Output> machine,
-    required Mapper<Event, Input> stateMapper,
-    required Mapper<Output, Event> eventMapper,
+    required Mapper<Event, Ward<Input>> stateMapper,
+    required Mapper<Output, Ward<Event>> eventMapper,
   })  : _machine = machine,
         _stateMapper = stateMapper,
         _eventMapper = eventMapper;
@@ -88,13 +84,13 @@ class MachineLayerObject<Event, Input, Output>
 
   /// from MachineLayerType
   @override
-  Input mapInput(Event event) {
+  Ward<Input> mapInput(Event event) {
     return _stateMapper(event);
   }
 
   /// from MachineLayerType
   @override
-  Event mapOutput(Output output) {
+  Ward<Event> mapOutput(Output output) {
     return _eventMapper(output);
   }
 }
@@ -106,13 +102,8 @@ class MachineLayerObject<Event, Input, Output>
 abstract class ConsumerLayerType<Event, Input, Output>
     extends MachineLayerType<Event, Input, Output> {
   @override
-  Event mapOutput(Output output) {
-    throw UnimplementedError("This method must not be called");
-  }
-
-  @override
-  _PassDataStrategy strategy() {
-    return _PassDataStrategy.states;
+  Ward<Event> mapOutput(Output output) {
+    return Ward<Event>.ignore();
   }
 }
 
@@ -123,14 +114,14 @@ abstract class ConsumerLayerType<Event, Input, Output>
 class ConsumerLayerObject<Event, Input, Output>
     extends ConsumerLayerType<Event, Input, Output> {
   final Machine<Input, Output> _machine;
-  final Mapper<Event, Input> _mapper;
+  final Mapper<Event, Ward<Input>> _mapper;
 
   /// [machine] - Layer's machine that receives the result of mapper
   /// method and emits event objects that are sent into reducer method.
   /// [mapper] - Triggered every time the global state is changed.
   ConsumerLayerObject({
     required Machine<Input, Output> machine,
-    required Mapper<Event, Input> mapper,
+    required Mapper<Event, Ward<Input>> mapper,
   })  : _machine = machine,
         _mapper = mapper;
 
@@ -142,7 +133,7 @@ class ConsumerLayerObject<Event, Input, Output>
 
   /// from ConsumerLayerType
   @override
-  Input mapInput(Event event) {
+  Ward<Input> mapInput(Event event) {
     return _mapper(event);
   }
 }
@@ -155,13 +146,8 @@ abstract class ProducerLayerType<Event, Input, Output>
     extends MachineLayerType<Event, Input, Output> {
   /// from MachineLayerType
   @override
-  Input mapInput(Event event) {
-    throw UnimplementedError("This method must not be called");
-  }
-
-  @override
-  _PassDataStrategy strategy() {
-    return _PassDataStrategy.events;
+  Ward<Input> mapInput(Event event) {
+    return Ward<Input>.ignore();
   }
 }
 
@@ -172,14 +158,14 @@ abstract class ProducerLayerType<Event, Input, Output>
 class ProducerLayerObject<Event, Input, Output>
     extends ProducerLayerType<Event, Input, Output> {
   final Machine<Input, Output> _machine;
-  final Mapper<Output, Event> _mapper;
+  final Mapper<Output, Ward<Event>> _mapper;
 
   /// [machine] - Layer's machine that receives the result of mapper
   /// method and emits event objects that are sent into reducer method.
   /// [reducer] - Triggered every time the machine sends an output event.
   ProducerLayerObject({
     required Machine<Input, Output> machine,
-    required Mapper<Output, Event> mapper,
+    required Mapper<Output, Ward<Event>> mapper,
   })  : _machine = machine,
         _mapper = mapper;
 
@@ -191,7 +177,7 @@ class ProducerLayerObject<Event, Input, Output>
 
   /// from ProducerLayerType
   @override
-  Event mapOutput(Output output) {
+  Ward<Event> mapOutput(Output output) {
     return _mapper(output);
   }
 }
@@ -200,8 +186,8 @@ class ProducerLayerObject<Event, Input, Output>
 abstract class MapInputLayerType<Event, Input>
     extends MachineLayerType<Event, Input, Event> {
   @override
-  Event mapOutput(Event output) {
-    return output;
+  Ward<Event> mapOutput(Event output) {
+    return Ward<Event>.single(output);
   }
 }
 
@@ -209,11 +195,11 @@ abstract class MapInputLayerType<Event, Input>
 class MapStateLayerObject<Event, Input>
     extends MapInputLayerType<Event, Input> {
   final Machine<Input, Event> _machine;
-  final Mapper<Event, Input> _mapper;
+  final Mapper<Event, Ward<Input>> _mapper;
 
   MapStateLayerObject({
     required Machine<Input, Event> machine,
-    required Mapper<Event, Input> mapper,
+    required Mapper<Event, Ward<Input>> mapper,
   })  : _machine = machine,
         _mapper = mapper;
 
@@ -223,7 +209,7 @@ class MapStateLayerObject<Event, Input>
   }
 
   @override
-  Input mapInput(Event event) {
+  Ward<Input> mapInput(Event event) {
     return _mapper(event);
   }
 }
@@ -232,8 +218,8 @@ class MapStateLayerObject<Event, Input>
 abstract class MapOutputLayerType<Event, Output>
     extends MachineLayerType<Event, Event, Output> {
   @override
-  Event mapInput(Event event) {
-    return event;
+  Ward<Event> mapInput(Event event) {
+    return Ward<Event>.single(event);
   }
 }
 
@@ -241,11 +227,11 @@ abstract class MapOutputLayerType<Event, Output>
 class MapOutputLayerObject<Event, Output>
     extends MapOutputLayerType<Event, Output> {
   final Machine<Event, Output> _machine;
-  final Mapper<Output, Event> _mapper;
+  final Mapper<Output, Ward<Event>> _mapper;
 
   MapOutputLayerObject({
     required Machine<Event, Output> machine,
-    required Mapper<Output, Event> mapper,
+    required Mapper<Output, Ward<Event>> mapper,
   })  : _machine = machine,
         _mapper = mapper;
 
@@ -255,7 +241,7 @@ class MapOutputLayerObject<Event, Output>
   }
 
   @override
-  Event mapOutput(Output output) {
+  Ward<Event> mapOutput(Output output) {
     return _mapper(output);
   }
 }
@@ -264,13 +250,13 @@ class MapOutputLayerObject<Event, Output>
 abstract class NoMapLayerType<Event>
     extends MachineLayerType<Event, Event, Event> {
   @override
-  Event mapInput(Event event) {
-    return event;
+  Ward<Event> mapInput(Event event) {
+    return Ward<Event>.single(event);
   }
 
   @override
-  Event mapOutput(Event output) {
-    return output;
+  Ward<Event> mapOutput(Event output) {
+    return Ward<Event>.single(output);
   }
 }
 
@@ -278,8 +264,9 @@ abstract class NoMapLayerType<Event>
 class NoMapLayerObject<Event> extends NoMapLayerType<Event> {
   final Machine<Event, Event> _machine;
 
-  NoMapLayerObject({required Machine<Event, Event> machine})
-      : _machine = machine;
+  NoMapLayerObject({
+    required Machine<Event, Event> machine,
+  }) : _machine = machine;
 
   @override
   Machine<Event, Event> machine() {
@@ -315,24 +302,13 @@ abstract class WidgetMachineLayerType<Event, Input, Output> {
 
 Machine<Event, Event> _implementation<Event, Input, Output>(
   Machine<Input, Output> machine,
-  Mapper<Event, Input> stateMapper,
-  Mapper<Output, Event> eventMapper,
-  _PassDataStrategy strategy,
+  Mapper<Event, Ward<Input>> stateMapper,
+  Mapper<Output, Ward<Event>> eventMapper,
 ) {
   return machine.outward((Output output) {
-    if (strategy == _PassDataStrategy.both ||
-        strategy == _PassDataStrategy.events) {
-      return Ward<Event>.single(eventMapper(output));
-    } else {
-      return Ward<Event>.ignore();
-    }
+    return eventMapper(output);
   }).inward((Event event) {
-    if (strategy == _PassDataStrategy.both ||
-        strategy == _PassDataStrategy.states) {
-      return Ward<Input>.single(stateMapper(event));
-    } else {
-      return Ward<Input>.ignore();
-    }
+    return stateMapper(event);
   });
 }
 
@@ -372,5 +348,3 @@ class WidgetMachineLayerObject<Event, Input, Output>
     return _eventMapper(output);
   }
 }
-
-enum _PassDataStrategy { states, events, both }
